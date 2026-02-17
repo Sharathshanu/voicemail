@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: voice-messenger
+    env: python
+    buildCommand: cd frontend && npm install && npm run build && cd ../backend && pip install -r requirements.txt
+    startCommand: cd backend && gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
