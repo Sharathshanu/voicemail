@@ -46,8 +46,7 @@ def send_email_with_audio(to_email, audio_filename, text_message):
         )
         msg.attach(part)
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
         server.login(sender_email, sender_password)
         text = msg.as_string()
         server.sendmail(sender_email, to_email, text)
