@@ -66,21 +66,28 @@ def send_voice_message():
         return jsonify({"error": "Email and message are required"}), 400
 
     try:
+        print("Starting request processing...", flush=True)
         # Generate Audio
+        print("Generating TTS...", flush=True)
         tts = gTTS(text=message, lang='en')
         audio_filename = "message.mp3"
         tts.save(audio_filename)
+        print("TTS Generated.", flush=True)
 
         # Send Email
+        print(f"Attempting to send email to {email}...", flush=True)
         if send_email_with_audio(email, audio_filename, message):
+            print("Email sent successfully!", flush=True)
             # Clean up
             if os.path.exists(audio_filename):
                 os.remove(audio_filename)
             return jsonify({"success": True, "message": "Voice message sent successfully!"}), 200
         else:
+             print("Email sending failed.", flush=True)
              return jsonify({"error": "Failed to send email. Check server logs."}), 500
 
     except Exception as e:
+        print(f"CRITICAL ERROR: {e}", flush=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
