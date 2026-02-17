@@ -1,5 +1,8 @@
 import os
 import smtplib
+import threading
+import uuid
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
@@ -18,19 +21,19 @@ CORS(app)
 def index():
     return app.send_static_file('index.html')
 
-def send_email_with_audio(to_email, audio_filename, text_message):
+def send_email_thread(to_email, audio_filename, text_message):
+    print(f"Background thread started for {to_email}", flush=True)
     sender_email = os.getenv("EMAIL_USER")
     sender_password = os.getenv("EMAIL_PASS")
 
     if not sender_email or not sender_password:
-        print("Error: Email credentials not found in environment variables.")
-        return False
+        print("Error: Email credentials not found.", flush=True)
+        return
 
     msg = MIMEMultipart()
     msg['From'] = sender_email
     msg['To'] = to_email
     msg['Subject'] = "You have a new voice message!"
-
     body = f"Here is the voice message for: \"{text_message}\""
     msg.attach(MIMEText(body, 'plain'))
 
@@ -38,23 +41,36 @@ def send_email_with_audio(to_email, audio_filename, text_message):
         with open(audio_filename, "rb") as attachment:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(attachment.read())
-        
+            
         encoders.encode_base64(part)
         part.add_header(
             "Content-Disposition",
-            f"attachment; filename= {os.path.basename(audio_filename)}",
+            f"attachment; filename=voice_message.mp3",
         )
         msg.attach(part)
 
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(sender_email, sender_password)
-        text = msg.as_string()
-        server.sendmail(sender_email, to_email, text)
-        server.quit()
-        return True
+        # Retry logic for connection
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                print(f"Connecting to SMTP (Attempt {attempt+1})...", flush=True)
+                server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30)
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+                server.quit()
+                print(f"Email sent successfully to {to_email}!", flush=True)
+                break
+            except Exception as e:
+                print(f"SMTP Error (Attempt {attempt+1}): {e}", flush=True)
+                time.sleep(2)
+        
     except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+        print(f"General Error in email thread: {e}", flush=True)
+    finally:
+        # Clean up file
+        if os.path.exists(audio_filename):
+            os.remove(audio_filename)
+            print(f"Cleaned up {audio_filename}", flush=True)
 
 @app.route('/api/send', methods=['POST'])
 def send_voice_message():
@@ -66,25 +82,21 @@ def send_voice_message():
         return jsonify({"error": "Email and message are required"}), 400
 
     try:
-        print("Starting request processing...", flush=True)
-        # Generate Audio
-        print("Generating TTS...", flush=True)
+        # Generate Unique Filename
+        unique_id = str(uuid.uuid4())
+        audio_filename = f"message_{unique_id}.mp3"
+        
+        print(f"Generating TTS for {audio_filename}...", flush=True)
         tts = gTTS(text=message, lang='en')
-        audio_filename = "message.mp3"
         tts.save(audio_filename)
-        print("TTS Generated.", flush=True)
+        
+        # Start Background Thread
+        print("Starting email background thread...", flush=True)
+        thread = threading.Thread(target=send_email_thread, args=(email, audio_filename, message))
+        thread.start()
 
-        # Send Email
-        print(f"Attempting to send email to {email}...", flush=True)
-        if send_email_with_audio(email, audio_filename, message):
-            print("Email sent successfully!", flush=True)
-            # Clean up
-            if os.path.exists(audio_filename):
-                os.remove(audio_filename)
-            return jsonify({"success": True, "message": "Voice message sent successfully!"}), 200
-        else:
-             print("Email sending failed.", flush=True)
-             return jsonify({"error": "Failed to send email. Check server logs."}), 500
+        # Return Success Immediately
+        return jsonify({"success": True, "message": "Sending in background..."}), 200
 
     except Exception as e:
         print(f"CRITICAL ERROR: {e}", flush=True)
